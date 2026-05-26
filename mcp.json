@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "bitcoin-mcp": {
+      "command": "C:\\Users\\admin\\.npm-global\\bitcoin-mcp.cmd",
+      "args": []
+    }
+  }
+}
