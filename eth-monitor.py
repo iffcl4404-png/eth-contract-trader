@@ -1,4 +1,4 @@
-"""ETH 15分钟监控 — 完整三层决策链 · 中文直白版"""
+"""ETH 15分钟监控 — 完整三层决策链 · 中文直白版 + K线形态分析"""
 import urllib.request, json, os
 from datetime import datetime
 
@@ -32,9 +32,9 @@ def main():
         funding = api_get("https://www.okx.com/api/v5/public/funding-rate?instId=ETH-USDT-SWAP")
         rate = float(funding['data'][0]['fundingRate']) * 100
 
-        candles = api_get("https://www.okx.com/api/v5/market/candles?instId=ETH-USDT-SWAP&bar=15m&limit=3")
+        candles = api_get("https://www.okx.com/api/v5/market/candles?instId=ETH-USDT-SWAP&bar=15m&limit=6")
         klines = []
-        for c in candles['data'][:3]:
+        for c in candles['data'][:6]:
             klines.append({'o': float(c[1]), 'h': float(c[2]), 'l': float(c[3]), 'c': float(c[4]), 'vol': float(c[5])})
         latest = klines[0]
         candle_type = 'BULL' if latest['c'] > latest['o'] else 'BEAR' if latest['c'] < latest['o'] else 'DOJI'
@@ -42,9 +42,31 @@ def main():
         wick_upper = latest['h'] - max(latest['c'], latest['o'])
         wick_lower = min(latest['c'], latest['o']) - latest['l']
         range_pct = (latest['h'] - latest['l']) / latest['o'] * 100
+
+        # 6根K线形态分析
+        kline_lines = []
+        for i, k in enumerate(klines):
+            bd = abs(k['c'] - k['o'])
+            wl = min(k['c'], k['o']) - k['l']
+            wu = k['h'] - max(k['c'], k['o'])
+            ct = '阳' if k['c'] > k['o'] else '阴'
+            note = ''
+            if wl > bd * 1.5: note = '下影长(承接)'
+            if wu > bd * 1.5: note = '上影长(抛压)'
+            if bd < 0.5: note = '实体极小(变盘)'
+            marker = '← ' + note if note else ''
+            kline_lines.append(f"  {ct} O{k['o']:.1f}→C{k['c']:.1f} 实体{bd:.1f} {marker}")
+
+        last3_low_wicks = sum(1 for k in klines[:3] if min(k['c'],k['o'])-k['l'] > abs(k['c']-k['o'])*1.2)
+        last3_bodies = [abs(k['c']-k['o']) for k in klines[:3]]
+        body_shrinking = len(last3_bodies)>=3 and last3_bodies[0] < 1 and last3_bodies[1] < 2
         candle_note = ""
-        if candle_type == 'BULL' and wick_upper < body * 0.8 and wick_lower > body * 0.5:
-            candle_note = "下影长于实体 + 上影短 → 买盘在低位承接，偏多信号"
+        if last3_low_wicks >= 2 and body_shrinking:
+            candle_note = "连续下影+实体缩小 → 低位承接，变盘临近"
+        elif last3_low_wicks >= 2:
+            candle_note = "连续下影线 → 买方在低位接盘"
+        elif body_shrinking:
+            candle_note = "实体持续缩小 → 变盘前兆"
 
         fg = api_get("https://api.alternative.me/fng/?limit=1")
         fear = int(fg['data'][0]['value'])
@@ -54,32 +76,6 @@ def main():
         risk = round(ACCOUNT * RISK_PCT, 2)
         margin = round(ACCOUNT * MARGIN_PCT, 2)
         position = round(margin * LEV, 0)
-
-        # ---- L1: 八项质量关 ----
-        def criterion(name, s, w, reason):
-            return (name, s, w, reason)
-
-        c1 = criterion("边界可信度", 80 if price < 2080 else 50, 20,
-            f"2080 支撑已破，转为阻力。当前价 {price} {'低于' if price<2080 else '高于'} 2080。做空逻辑成立。")
-        c2 = criterion("过拟合风险", 75, 20,
-            f"用了4个数据源：价格、费率({rate:.4f}%)、成交量({vol:.0f}M)、恐惧贪婪({fear})。单指标不会左右判断。")
-        c3 = criterion("样本量", 65, 15,
-            f"2080 跌破的案例这个月出现过 2 次，每次后续走了 30-50 点。样本少但有参考价值。")
-        c4 = criterion("执行可行", 70, 15,
-            f"Tebbit 交易所，125 倍杠杆。OKX 的买卖价差很窄，但 Tebbit 深度未知，有滑点风险。")
-        c5 = criterion("情绪一致", 85, 10,
-            f"恐惧指数 {fear}（{fear_label}）+ 费率 {rate:.4f}%（中性）+ 散户 72% 做多。指标统一指向偏空，没有矛盾。")
-        c6 = criterion("宏观匹配", 70, 10,
-            "ETF 持续流出，今天无重大利好数据。Glamsterdam 升级预期还没被市场消化。")
-        c7 = criterion("风险回报", 60, 5,
-            "目前没有活跃交易计划，R 倍数无法计算。等方向明确了才能评估。")
-        c8 = criterion("时效性", 55 if (price-low) > 15 else 70, 5,
-            f"从 24 小时低点 {low} 已反弹 {price-low:.0f} 点。{'反弹幅度较大，做空窗口在收窄' if (price-low)>15 else '信号仍然有效'}。")
-
-        criteria = [c1, c2, c3, c4, c5, c6, c7, c8]
-        total_w = sum(w for _,_,w,_ in criteria)
-        gate_score = sum(s*w for _,s,w,_ in criteria) / total_w
-        gate_pass = sum(1 for _,s,_,_ in criteria if s >= 60)
 
         # ---- L2: 三技能量化 ----
         bearish_signals = [1 if price < 2080 else 0, 1, 0]
@@ -100,39 +96,62 @@ def main():
         else:
             rr = 0; reward_u = 0
 
-        # ---- L3: 场景分析 ----
+        # ---- L1: 八项质量关 ----
+        def criterion(name, s, w, reason):
+            return (name, s, w, reason)
+
+        c1 = criterion("边界可信度", 80 if price < 2080 else 50, 20,
+            f"2080 支撑已破，转为阻力。当前价 {price} {'低于' if price<2080 else '高于'} 2080。做空逻辑成立。")
+        c2 = criterion("过拟合风险", 75, 20,
+            f"用了4个数据源：价格、费率({rate:.4f}%)、成交量({vol:.0f}M)、恐惧贪婪({fear})。单指标不会左右判断。")
+        c3 = criterion("样本量", 65, 15,
+            f"2080 跌破的案例这个月出现过 2 次，每次后续走了 30-50 点。样本少但有参考价值。")
+        c4 = criterion("执行可行", 70, 15,
+            f"Tebbit 交易所，125 倍杠杆。OKX 的买卖价差很窄，但 Tebbit 深度未知，有滑点风险。")
+        c5 = criterion("情绪一致", 85, 10,
+            f"恐惧指数 {fear}（{fear_label}）+ 费率 {rate:.4f}%（中性）+ 散户 72% 做多。指标统一指向偏空。")
+        c6 = criterion("宏观匹配", 70, 10,
+            "ETF 持续流出，今天无重大利好数据。Glamsterdam 升级预期还没被市场消化。")
+        c7 = criterion("风险回报", 75 if bias != "观望" and rr >= 1.5 else 50, 5,
+            f"R={rr}R" if bias != "观望" else "无交易计划，无法评估。")
+        c8 = criterion("时效性", 55 if (price-low) > 15 else 70, 5,
+            f"从 24h 低点 {low} 已反弹 {price-low:.0f} 点。{'反弹幅度较大，信号窗口收窄' if (price-low)>15 else '信号仍然有效'}。")
+
+        criteria = [c1, c2, c3, c4, c5, c6, c7, c8]
+        total_w = sum(w for _,_,w,_ in criteria)
+        gate_score = sum(s*w for _,s,w,_ in criteria) / total_w
+        gate_pass = sum(1 for _,s,_,_ in criteria if s >= 60)
+
+        # ---- L3: 场景 ----
         if bias == "做空":
-            sA = f"反弹到 {entry} 后遇阻，跌到 {tp}（概率 45%）"
-            sB = f"突破 {stop}，做空判断出错，止损走人（概率 30%）"
-            sC = "不反弹，继续阴跌，错过入场（概率 25%）"
+            sA = f"反弹到 {entry} 后遇阻，跌到 {tp}（45%）"
+            sB = f"突破 {stop}，做空出错，止损（30%）"
+            sC = "不反弹，继续阴跌，错过入场（25%）"
         elif bias == "做多":
-            sA = f"回调到 {entry} 后支撑住，涨到 {tp}（概率 45%）"
-            sB = f"跌破 {stop}，做多判断出错，止损走人（概率 30%）"
-            sC = "不回调，继续涨，错过入场（概率 25%）"
+            sA = f"回调到 {entry} 后支撑，涨到 {tp}（45%）"
+            sB = f"跌破 {stop}，做多出错，止损（30%）"
+            sC = "不回调，继续涨，错过入场（25%）"
         else:
-            sA = f"价格在 {low} 到 2080 之间震荡，没有突破（概率 40%）"
-            sB = f"突破 2080 上方 → 触发做多信号（概率 35%）"
-            sC = f"跌破 {low} → 触发做空信号（概率 25%）"
+            sA = f"{low} 到 2080 间震荡，无突破（40%）"
+            sB = f"突破 2080 → 做多（35%）"
+            sC = f"跌破 {low} → 做空（25%）"
 
         # ---- 最终决定 ----
         trade_ok = bias != "观望" and rr >= 1.5 and gate_score >= 65
-        decision = f"{bias}，入场 {entry} 美金" if trade_ok else "不做单，继续等"
-
-        now = datetime.now().strftime("%m/%d %H:%M")
-        # 找出最差项
-        worst = min(criteria, key=lambda x: x[1])
-        # 找出冲突项
+        decision = f"{bias}，入场 {entry}" if trade_ok else "不做单，继续等"
         conflicts = [c for c in criteria if c[1] < 60]
 
+        now = datetime.now().strftime("%m/%d %H:%M")
         report = f"""━━━━━━━━━━━━━━━━━━━━
 {now} | ETH {price} | {chg:+.2f}% | F&G {fear} | 费率 {rate:.4f}%
-15m K: {format_candle_type(candle_type)} O{latest['o']:.1f}→C{latest['c']:.1f} 振幅{range_pct:.2f}% {candle_note}
+15m K: {format_candle_type(candle_type)} O{latest['o']:.1f}→C{latest['c']:.1f} 振幅{range_pct:.2f}%
+形态: {candle_note if candle_note else '无明显形态'}
 L1 量化: {bias}（空{sum(bearish_signals)} vs 多{sum(bullish_signals)}）"""
 
         if bias != "观望":
             report += f" | 入场{entry} 止损{stop} 止盈{tp} R=1:{rr}"
         else:
-            report += f" | A震荡 B上破 C下破"
+            report += f" | {sA[:20]}"
 
         report += f"\nL2 质量: {gate_score:.0f}分({gate_pass}/8)"
 
