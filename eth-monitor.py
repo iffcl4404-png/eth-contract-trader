@@ -127,16 +127,17 @@ def main():
         report = f"""━━━━━━━━━━━━━━━━━━━━
 {now} | ETH {price} | {chg:+.2f}% | F&G {fear} | 费率 {rate:.4f}%
 15m K: {format_candle_type(candle_type)} O{latest['o']:.1f}→C{latest['c']:.1f} 振幅{range_pct:.2f}% {candle_note}
-L1 质量: {gate_score:.0f}分({gate_pass}/8) | 最差: {worst[0]} {worst[1]}分
-L2 方向: {bias}（空{sum(bearish_signals)} vs 多{sum(bullish_signals)}）"""
+L1 量化: {bias}（空{sum(bearish_signals)} vs 多{sum(bullish_signals)}）"""
 
         if bias != "观望":
-            report += f"\n交易: {bias} @ {entry} | 止损 {stop} | 止盈 {tp} | R=1:{rr} | 亏{risk}U 赚{reward_u}U"
+            report += f" | 入场{entry} 止损{stop} 止盈{tp} R=1:{rr}"
         else:
-            report += f"\n场景: A震荡 B上破 C下破"
+            report += f" | A震荡 B上破 C下破"
+
+        report += f"\nL2 质量: {gate_score:.0f}分({gate_pass}/8)"
 
         if conflicts:
-            report += f"\n风险: {' '.join([c[0] for c in conflicts])} 不通过"
+            report += f" | {' '.join([c[0] for c in conflicts])} 不通过"
 
         report += f"\n→ {decision}\n"
 

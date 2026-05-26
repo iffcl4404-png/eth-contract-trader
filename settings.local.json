@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(winget install *)",
+      "PowerShell(code *)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); npm install -g coincap-mcp 2>&1)",
+      "PowerShell(python *)",
+      "PowerShell(node *)",
+      "PowerShell(Get-Content *)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell(Get-Process *)",
+      "PowerShell(Test-Path *)",
+      "PowerShell(Start-Process *)",
+      "PowerShell($env:Path = *; python *eth-monitor*)",
+      "PowerShell([Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $eth = Invoke-RestMethod -Uri \"https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd&include_24hr_change=true\" -TimeoutSec 10; Write-Host \"ETH: $\\($eth.ethereum.usd\\) | 24h: $\\([math]::Round\\($eth.ethereum.usd_24h_change,2\\)\\)%\")"
+    ]
+  }
+}
