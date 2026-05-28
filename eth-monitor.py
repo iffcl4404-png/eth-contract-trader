@@ -1,12 +1,19 @@
-"""ETH 15分钟监控 — 完整三层决策链 · 中文直白版 + K线形态分析 + 金十数据"""
+"""ETH 15分钟监控 — 完整三层决策链 + Alpha Skills 五技能融合 + 金十数据"""
 import urllib.request, json, os, sys
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
-# 添加当前目录到 path，确保能 import jin10_fetch
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Alpha Skills 引擎
+from eth_trade_engine import (
+    position_sizer, REVIEW_CRITERIA, review_verdict,
+    build_scenarios, analyze_kline_patterns,
+    record_trade, get_trade_stats
+)
+
 OUTPUT = os.path.expanduser("~/Desktop/eth-report.txt")
-ACCOUNT = 7.97; LEV = 125; RISK_PCT = 0.10; MARGIN_PCT = 0.20
+ACCOUNT = 10.12; LEV = 125; RISK_PCT = 0.10; MARGIN_PCT = 0.20
+TZ = timezone(timedelta(hours=8))
 
 PROXY = "http://127.0.0.1:7897"
 
@@ -55,30 +62,9 @@ def main():
         wick_lower = min(latest['c'], latest['o']) - latest['l']
         range_pct = (latest['h'] - latest['l']) / latest['o'] * 100
 
-        # 6根K线形态分析
-        kline_lines = []
-        for i, k in enumerate(klines):
-            bd = abs(k['c'] - k['o'])
-            wl = min(k['c'], k['o']) - k['l']
-            wu = k['h'] - max(k['c'], k['o'])
-            ct = '阳' if k['c'] > k['o'] else '阴'
-            note = ''
-            if wl > bd * 1.5: note = '下影长(承接)'
-            if wu > bd * 1.5: note = '上影长(抛压)'
-            if bd < 0.5: note = '实体极小(变盘)'
-            marker = '← ' + note if note else ''
-            kline_lines.append(f"  {ct} O{k['o']:.1f}→C{k['c']:.1f} 实体{bd:.1f} {marker}")
-
-        last3_low_wicks = sum(1 for k in klines[:3] if min(k['c'],k['o'])-k['l'] > abs(k['c']-k['o'])*1.2)
-        last3_bodies = [abs(k['c']-k['o']) for k in klines[:3]]
-        body_shrinking = len(last3_bodies)>=3 and last3_bodies[0] < 1 and last3_bodies[1] < 2
-        candle_note = ""
-        if last3_low_wicks >= 2 and body_shrinking:
-            candle_note = "连续下影+实体缩小 → 低位承接，变盘临近"
-        elif last3_low_wicks >= 2:
-            candle_note = "连续下影线 → 买方在低位接盘"
-        elif body_shrinking:
-            candle_note = "实体持续缩小 → 变盘前兆"
+        # K线形态分析 (technical-analyst skill)
+        kline_analysis = analyze_kline_patterns(klines)
+        candle_note = kline_analysis["signal"]
 
         fg = api_get("https://api.alternative.me/fng/?limit=1")
         fear = int(fg['data'][0]['value'])
@@ -125,11 +111,6 @@ def main():
         except Exception as e:
             jin10_macro_note = f"金十获取失败: {e}"
 
-        # ---- 计算 ----
-        risk = round(ACCOUNT * RISK_PCT, 2)
-        margin = round(ACCOUNT * MARGIN_PCT, 2)
-        position = round(margin * LEV, 0)
-
         # ---- L2: 三技能量化 ----
         bearish_signals = [1 if price < 2080 else 0, 1, 0]
         bullish_signals = [1 if (price-low) > 10 else 0, 1 if price > 2070 else 0, 0]
@@ -145,9 +126,8 @@ def main():
 
         if bias != "观望" and entry and stop and tp:
             rr = round(abs(entry - tp) / abs(entry - stop), 1)
-            reward_u = round(abs(entry - tp) / entry * position, 2)
         else:
-            rr = 0; reward_u = 0
+            rr = 0
 
         # ---- L1: 八项质量关 ----
         def criterion(name, s, w, reason):
@@ -251,7 +231,18 @@ def main():
         else:
             report += "  ✅ 全部通过"
 
+        # Position sizing from Alpha Skills
+        if bias != "观望" and entry and stop and tp:
+            ps = position_sizer(ACCOUNT, entry, stop, tp, RISK_PCT, LEV, MARGIN_PCT)
+
         report += f"\n\n  → 决策  {decision}"
+
+        # Trade stats from signal-postmortem
+        stats = get_trade_stats()
+        if stats["total"] > 0:
+            report += f"\n\n{sep}\n  交易统计（signal-postmortem）\n{sep}"
+            report += f"\n  总{stats['total']}单 | 胜{stats['wins']}败{stats['losses']} | 胜率{stats['win_rate']}%"
+            report += f"\n  累计盈亏 {stats['total_pnl']:+.2f}U | 均盈{stats['avg_win']:.2f}U | 均亏{stats['avg_loss']:.2f}U"
 
         # C6 宏观雷达
         report += f"""
