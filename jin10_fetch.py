@@ -13,12 +13,13 @@ from datetime import datetime, timezone, timedelta
 TOKEN = "sk-IUx47kZ7t3iebNL5Ar8uK5BZ1oy5Tjul_n4zTAWUgTE"
 URL = "https://mcp.jin10.com/mcp"
 TZ = timezone(timedelta(hours=8))  # Beijing time
+PROXY = "http://127.0.0.1:7897"
 
 class Jin10:
-    def __init__(self, proxy=None):
+    def __init__(self, proxy=PROXY):
         self.session_id = None
         self._call_id = 0
-        ph = urllib.request.ProxyHandler(proxy if proxy else {})
+        ph = urllib.request.ProxyHandler({"http": proxy, "https": proxy}) if proxy else urllib.request.ProxyHandler({})
         self._opener = urllib.request.build_opener(ph)
         self._connect()
 

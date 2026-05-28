@@ -8,19 +8,20 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 OUTPUT = os.path.expanduser("~/Desktop/eth-report.txt")
 ACCOUNT = 7.97; LEV = 125; RISK_PCT = 0.10; MARGIN_PCT = 0.20
 
+PROXY = "http://127.0.0.1:7897"
+
 def api_get(url):
-    # 先尝试直连，失败再走代理
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    # 强制走代理，隐藏真实 IP
+    proxy_handler = urllib.request.ProxyHandler({"http": PROXY, "https": PROXY})
+    opener = urllib.request.build_opener(proxy_handler)
+    req = urllib.request.Request(url, headers={"User-Agent": "ETH-Monitor/1.0"})
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "ETH-Monitor/1.0"})
-        with opener.open(req, timeout=10) as r:
+        with opener.open(req, timeout=15) as r:
             return json.loads(r.read())
     except Exception:
-        # 直连失败，尝试代理
-        proxy_handler = urllib.request.ProxyHandler({"http": "http://127.0.0.1:7897", "https": "http://127.0.0.1:7897"})
-        opener = urllib.request.build_opener(proxy_handler)
-        req = urllib.request.Request(url, headers={"User-Agent": "ETH-Monitor/1.0"})
-        with opener.open(req, timeout=15) as r:
+        # 代理挂了降级直连（仅紧急）
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=10) as r:
             return json.loads(r.read())
 
 def format_score(s):
