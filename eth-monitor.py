@@ -10,6 +10,11 @@ from eth_trade_engine import (
     build_scenarios, analyze_kline_patterns,
     record_trade, get_trade_stats
 )
+from eth_skills_bridge import (
+    detect_macro_regime, assess_breadth, detect_top_risk,
+    estimate_institutional_flow, detect_themes, portfolio_health,
+    market_environment, aggregate_long_signals
+)
 
 OUTPUT = os.path.expanduser("~/Desktop/eth-report.txt")
 ACCOUNT = 10.12; LEV = 125; RISK_PCT = 0.10; MARGIN_PCT = 0.20
@@ -242,11 +247,24 @@ def main():
         if bias != "观望" and entry and stop and tp:
             ps = position_sizer(ACCOUNT, entry, stop, tp, RISK_PCT, LEV, MARGIN_PCT)
 
+        # ---- 8 技能桥接（宏观/广度/顶部/资金流/主题/组合/环境/聚合） ----
+        stats = get_trade_stats()
+        pce_hint = next((m["content"][:100] for m in jin10_macro_news if "PCE" in m.get("content", "")), None)
+        fed_stance = "hawkish" if any("加息" in m.get("content", "") for m in jin10_macro_news[:5]) else \
+                     "dovish" if any("降息" in m.get("content", "") for m in jin10_macro_news[:5]) else "neutral"
+        macro_regime = detect_macro_regime(pce_hint, fed_stance, "rising", "neutral")
+        breadth = assess_breadth("below", "below", rate / 100, fear)
+        top_risk = detect_top_risk(price, high, low, 1, rate / 100)
+        inst_flow = estimate_institutional_flow(0.01, rate / 100, vol * 1e6, chg)
+        themes = detect_themes(jin10_crypto, jin10_macro_news, jin10_geo)
+        pf_health = portfolio_health(ACCOUNT, stats.get("total_pnl", 0), stats.get("win_rate", 0), stats.get("total", 0))
+        env = market_environment(price, chg, fear, macro_regime, top_risk, breadth)
+        agg_long = aggregate_long_signals(gate_score, c6_score, macro_regime, breadth, top_risk, env)
+
         report += f"\n\n  → 决策  {decision}"
 
         # Trade stats from signal-postmortem
-        stats = get_trade_stats()
-        if stats["total"] > 0:
+        if stats.get("total", 0) > 0:
             report += f"\n\n{sep}\n  交易统计（signal-postmortem）\n{sep}"
             report += f"\n  总{stats['total']}单 | 胜{stats['wins']}败{stats['losses']} | 胜率{stats['win_rate']}%"
             report += f"\n  累计盈亏 {stats['total_pnl']:+.2f}U | 均盈{stats['avg_win']:.2f}U | 均亏{stats['avg_loss']:.2f}U"
@@ -271,6 +289,20 @@ def main():
             report += f"\n  [日历] {cal_items}"
 
         report += f"\n\n  {' '.join('['+t+']' for t in risk_tags) if risk_tags else '面无风险'}  →  C6 = {c6_score}"
+
+        # 8 技能桥接输出
+        report += f"""
+\n{sep}
+  宏观技能桥接
+{sep}
+  宏观体制    {macro_regime['regime']} → {macro_regime['bias']}  ETH:{macro_regime['eth_outlook']}
+  市场广度    {breadth['health']} ({breadth['score']}/100)
+  顶部风险    {top_risk['level']} ({top_risk['top_risk']}/100)
+  机构资金    {' | '.join(inst_flow['signals'][:2])}
+  市场主题    {', '.join(f'{t}({c})' for t,c in themes['dominant_themes'][:3])}
+  组合健康    {pf_health['grade']}级 ({pf_health['health_score']}/100)
+  综合环境    {env['environment']} → {env['recommendation']}
+  信号聚合    共识 {agg_long['conviction']:.0f}%"""
 
         report += "\n"
 
