@@ -1,16 +1,27 @@
-"""ETH 15分钟监控 — 完整三层决策链 · 中文直白版 + K线形态分析"""
-import urllib.request, json, os
+"""ETH 15分钟监控 — 完整三层决策链 · 中文直白版 + K线形态分析 + 金十数据"""
+import urllib.request, json, os, sys
 from datetime import datetime
 
+# 添加当前目录到 path，确保能 import jin10_fetch
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 OUTPUT = os.path.expanduser("~/Desktop/eth-report.txt")
-ACCOUNT = 7.85; LEV = 125; RISK_PCT = 0.10; MARGIN_PCT = 0.20
+ACCOUNT = 7.97; LEV = 125; RISK_PCT = 0.10; MARGIN_PCT = 0.20
 
 def api_get(url):
-    proxy_handler = urllib.request.ProxyHandler({"http": "http://127.0.0.1:7897", "https": "http://127.0.0.1:7897"})
-    opener = urllib.request.build_opener(proxy_handler)
-    req = urllib.request.Request(url, headers={"User-Agent": "ETH-Monitor/1.0"})
-    with opener.open(req, timeout=15) as r:
-        return json.loads(r.read())
+    # 先尝试直连，失败再走代理
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "ETH-Monitor/1.0"})
+        with opener.open(req, timeout=10) as r:
+            return json.loads(r.read())
+    except Exception:
+        # 直连失败，尝试代理
+        proxy_handler = urllib.request.ProxyHandler({"http": "http://127.0.0.1:7897", "https": "http://127.0.0.1:7897"})
+        opener = urllib.request.build_opener(proxy_handler)
+        req = urllib.request.Request(url, headers={"User-Agent": "ETH-Monitor/1.0"})
+        with opener.open(req, timeout=15) as r:
+            return json.loads(r.read())
 
 def format_score(s):
     return "通过" if s >= 70 else "勉强" if s >= 60 else "不通过"
@@ -72,6 +83,47 @@ def main():
         fear = int(fg['data'][0]['value'])
         fear_label = fg['data'][0]['value_classification']
 
+        # ---- 金十数据 ----
+        jin10_summary = ""
+        jin10_macro_note = "无重大数据"
+        jin10_events = []
+        jin10_crypto = []
+        jin10_geo = []
+        jin10_macro_news = []
+        try:
+            from jin10_fetch import Jin10
+            j10 = Jin10()
+
+            # 一次调用拉取所有维度
+            all_data = j10.get_all_impact()
+            jin10_events = all_data["calendar"]
+            jin10_crypto = all_data["crypto"]
+            jin10_geo = all_data["geopolitical"]
+            jin10_macro_news = all_data["macro"]
+
+            # 财经日历摘要
+            high_events = [e for e in jin10_events if e["star"] >= 3]
+            if high_events:
+                jin10_macro_note = "今日重磅: " + "、".join(e["title"][:25] for e in high_events[:3])
+            elif jin10_events:
+                jin10_macro_note = "今日事件: " + "、".join(e["title"][:25] for e in jin10_events[:2])
+
+            # 汇总所有维度快讯（加密+地缘+宏观，去重，取最新5条）
+            all_flash = []
+            seen_content = set()
+            for src, items in [("加密", jin10_crypto), ("地缘", jin10_geo), ("宏观", jin10_macro_news)]:
+                for item in items[:3]:
+                    c = item["content"][:80]
+                    if c not in seen_content:
+                        seen_content.add(c)
+                        all_flash.append(f"{item['time'][:5]} [{src}] {c}")
+            all_flash.sort(reverse=True)
+            jin10_summary = " | ".join(all_flash[:5])
+
+            j10.close()
+        except Exception as e:
+            jin10_macro_note = f"金十获取失败: {e}"
+
         # ---- 计算 ----
         risk = round(ACCOUNT * RISK_PCT, 2)
         margin = round(ACCOUNT * MARGIN_PCT, 2)
@@ -110,8 +162,32 @@ def main():
             f"Tebbit 交易所，125 倍杠杆。OKX 的买卖价差很窄，但 Tebbit 深度未知，有滑点风险。")
         c5 = criterion("情绪一致", 85, 10,
             f"恐惧指数 {fear}（{fear_label}）+ 费率 {rate:.4f}%（中性）+ 散户 72% 做多。指标统一指向偏空。")
-        c6 = criterion("宏观匹配", 70, 10,
-            "ETF 持续流出，今天无重大利好数据。Glamsterdam 升级预期还没被市场消化。")
+        # C6 评分: 日历重大事件 -15, 地缘风险 -15, 宏观冲突 -10, 加密负面 -5
+        c6_score = 75
+        risk_tags = []
+        # 日历重磅事件
+        if any(kw in jin10_macro_note for kw in ["重磅", "非农", "CPI", "利率决议", "GDP"]):
+            c6_score -= 15; risk_tags.append("日历重磅")
+        # 地缘/战争
+        geo_text = " ".join(g["content"][:100] for g in jin10_geo[:5])
+        if any(kw in geo_text for kw in ["战争", "军事", "冲突", "导弹", "制裁", "封锁"]):
+            c6_score -= 15; risk_tags.append("地缘风险")
+        elif jin10_geo:
+            c6_score -= 5; risk_tags.append("地缘关注")
+        # 宏观冲突
+        macro_text = " ".join(m["content"][:100] for m in jin10_macro_news[:5])
+        if any(kw in macro_text for kw in ["加息", "衰退", "危机", "崩盘"]):
+            c6_score -= 10; risk_tags.append("宏观利空")
+        elif any(kw in macro_text for kw in ["降息", "宽松", "刺激"]):
+            c6_score += 5; risk_tags.append("宏观利好")
+        # 加密负面
+        crypto_text = " ".join(c["content"][:100] for c in jin10_crypto[:5])
+        if any(kw in crypto_text for kw in ["监管", "SEC", "崩盘", "暴跌", "禁止"]):
+            c6_score -= 5; risk_tags.append("加密监管")
+        c6_score = max(c6_score, 30)
+        risk_note = " | ".join(risk_tags) if risk_tags else "面平静"
+        c6 = criterion("宏观匹配", c6_score, 10,
+            f"{jin10_macro_note}。风险: {risk_note}")
         c7 = criterion("风险回报", 75 if bias != "观望" and rr >= 1.5 else 50, 5,
             f"R={rr}R" if bias != "观望" else "无交易计划，无法评估。")
         c8 = criterion("时效性", 55 if (price-low) > 15 else 70, 5,
@@ -158,7 +234,12 @@ L1 量化: {bias}（空{sum(bearish_signals)} vs 多{sum(bullish_signals)}）"""
         if conflicts:
             report += f" | {' '.join([c[0] for c in conflicts])} 不通过"
 
-        report += f"\n→ {decision}\n"
+        report += f"\n→ {decision}"
+
+        if jin10_summary:
+            report += f"\n金十: {jin10_summary}"
+
+        report += "\n"
 
         with open(OUTPUT, "w", encoding="utf-8") as f:
             f.write(report)
