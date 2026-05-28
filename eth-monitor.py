@@ -117,10 +117,11 @@ def main():
         net = sum(bullish_signals) - sum(bearish_signals)
         bias = "做多" if net > 0 else "做空" if net < 0 else "观望"
 
+        # 短线参数：止损 6 点，止盈 12 点，R=1:2.0
         if bias == "做空":
-            entry = round(price + 8, 1); stop = round(entry + 15, 1); tp = round(entry - 25, 1)
+            entry = round(price + 8, 1); stop = round(entry + 6, 1); tp = round(entry - 12, 1)
         elif bias == "做多":
-            entry = round(price - 8, 1); stop = round(entry - 15, 1); tp = round(entry + 25, 1)
+            entry = round(price - 8, 1); stop = round(entry - 6, 1); tp = round(entry + 12, 1)
         else:
             entry = stop = tp = None
 
@@ -175,8 +176,8 @@ def main():
         risk_note = " | ".join(risk_tags) if risk_tags else "面平静"
         c6 = criterion("宏观匹配", c6_score, 10,
             f"{jin10_macro_note}。风险: {risk_note}")
-        c7 = criterion("风险回报", 75 if bias != "观望" and rr >= 1.5 else 50, 5,
-            f"R={rr}R" if bias != "观望" else "无交易计划，无法评估。")
+        c7 = criterion("风险回报", 80 if bias != "观望" and rr >= 2.0 else 55 if bias != "观望" and rr >= 1.5 else 40, 5,
+            f"R=1:{rr}（短线）" if bias != "观望" else "无交易计划，无法评估。")
         c8 = criterion("时效性", 55 if (price-low) > 15 else 70, 5,
             f"从 24h 低点 {low} 已反弹 {price-low:.0f} 点。{'反弹幅度较大，信号窗口收窄' if (price-low)>15 else '信号仍然有效'}。")
 
