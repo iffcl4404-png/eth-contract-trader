@@ -218,26 +218,60 @@ def main():
         conflicts = [c for c in criteria if c[1] < 60]
 
         now = datetime.now().strftime("%m/%d %H:%M")
-        report = f"""━━━━━━━━━━━━━━━━━━━━
-{now} | ETH {price} | {chg:+.2f}% | F&G {fear} | 费率 {rate:.4f}%
-15m K: {format_candle_type(candle_type)} O{latest['o']:.1f}→C{latest['c']:.1f} 振幅{range_pct:.2f}%
-形态: {candle_note if candle_note else '无明显形态'}
-L1 量化: {bias}（空{sum(bearish_signals)} vs 多{sum(bullish_signals)}）"""
+        sep = "━" * 54
+
+        # 行情面板
+        report = f"""{sep}
+  {now}  ETH 行情面板
+{sep}
+
+  价格 ${price:.2f}  │  日跌 {chg:+.2f}%
+  24h 高 ${high:.2f}  │  24h 低 ${low:.2f}
+  F&G {fear}（{fear_label}）│  费率 {rate:.4f}%
+
+  15m K线: {format_candle_type(candle_type)} O{latest['o']:.1f}→C{latest['c']:.1f}  振幅{range_pct:.2f}%
+  形态: {candle_note if candle_note else '无明显形态'}
+
+{sep}
+  决策链
+{sep}
+
+  L1 量化  {bias}（空{sum(bearish_signals)} vs 多{sum(bullish_signals)}）"""
 
         if bias != "观望":
-            report += f" | 入场{entry} 止损{stop} 止盈{tp} R=1:{rr}"
-        else:
-            report += f" | {sA[:20]}"
+            report += f"""
+          入场 ${entry}  止损 ${stop}  止盈 ${tp}
+          R = 1:{rr}"""
 
-        report += f"\nL2 质量: {gate_score:.0f}分({gate_pass}/8)"
-
+        # 质量关
+        report += f"\n\n  L2 质量  {gate_score:.0f}分（{gate_pass}/8）"
         if conflicts:
-            report += f" | {' '.join([c[0] for c in conflicts])} 不通过"
+            report += f"  ⚠️ {'、'.join([c[0] for c in conflicts])}不通过"
+        else:
+            report += "  ✅ 全部通过"
 
-        report += f"\n→ {decision}"
+        report += f"\n\n  → 决策  {decision}"
 
-        if jin10_summary:
-            report += f"\n金十: {jin10_summary}"
+        # C6 宏观雷达
+        report += f"""
+\n{sep}
+  C6 宏观雷达（金十实时）
+{sep}
+"""
+        if jin10_geo:
+            geo_items = "、".join(g["content"][:50] for g in jin10_geo[:2])
+            report += f"\n  [地缘] {geo_items}"
+        if jin10_macro_news:
+            macro_items = "、".join(m["content"][:50] for m in jin10_macro_news[:2])
+            report += f"\n  [宏观] {macro_items}"
+        if jin10_crypto:
+            crypto_items = "、".join(c["content"][:50] for c in jin10_crypto[:2])
+            report += f"\n  [加密] {crypto_items}"
+        if jin10_events:
+            cal_items = "、".join(e["title"][:25] for e in jin10_events[:3])
+            report += f"\n  [日历] {cal_items}"
+
+        report += f"\n\n  {' '.join('['+t+']' for t in risk_tags) if risk_tags else '面无风险'}  →  C6 = {c6_score}"
 
         report += "\n"
 
