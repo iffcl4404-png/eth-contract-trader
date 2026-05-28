@@ -149,14 +149,15 @@ def main():
         # 日历重磅事件
         if any(kw in jin10_macro_note for kw in ["重磅", "非农", "CPI", "利率决议", "GDP"]):
             c6_score -= 15; risk_tags.append("日历重磅")
-        # 地缘/战争 — 双向：升级扣分，降温加分
-        geo_text = " ".join(g["content"][:100] for g in jin10_geo[:5])
-        if any(kw in geo_text for kw in ["战争", "军事", "冲突", "导弹", "制裁", "封锁"]):
-            if any(kw in geo_text for kw in ["和谈", "停火", "协议", "备忘录", "降温", "解除", "延长"]):
-                c6_score += 10; risk_tags.append("地缘降温")
-            else:
-                c6_score -= 15; risk_tags.append("地缘风险")
-        elif any(kw in geo_text for kw in ["和谈", "停火", "备忘录", "降温", "解除制裁"]):
+        # 地缘/战争 — 双向独立判定（扫描全部地缘快讯，不限于前5条）
+        geo_text_full = " ".join(g["content"][:100] for g in jin10_geo[:15])
+        has_escalation = any(kw in geo_text_full for kw in ["战争", "军事", "冲突", "导弹", "制裁", "封锁", "袭击"])
+        has_deescalation = any(kw in geo_text_full for kw in ["和谈", "停火", "备忘录", "降温", "解除制裁", "协议达成"])
+        if has_escalation and has_deescalation:
+            c6_score -= 5; risk_tags.append("地缘混合")
+        elif has_escalation:
+            c6_score -= 15; risk_tags.append("地缘风险")
+        elif has_deescalation:
             c6_score += 10; risk_tags.append("地缘降温")
         elif jin10_geo:
             c6_score -= 5; risk_tags.append("地缘关注")
