@@ -65,8 +65,10 @@ class Jin10:
                 raw = resp.read().decode("utf-8", errors="replace")
                 for line in raw.split("\n"):
                     if line.startswith("data: "):
-                        return json.loads(line[6:])
-                return json.loads(raw) if raw.strip() else None
+                        clean = line[6:].encode("utf-8", errors="replace").decode("utf-8", errors="replace")
+                        return json.loads(clean)
+                clean = raw.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
+                return json.loads(clean) if clean.strip() else None
         except urllib.error.HTTPError as e:
             if e.code in (202, 204):
                 return None

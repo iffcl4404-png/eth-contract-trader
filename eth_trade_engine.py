@@ -206,7 +206,8 @@ def record_trade(account, direction, entry, exit_px, stop, tp, notes=""):
 
     trades.append(trade.__dict__)
     os.makedirs(os.path.dirname(TRADE_LOG) if os.path.dirname(TRADE_LOG) else ".", exist_ok=True)
-    with open(TRADE_LOG, "w", encoding="utf-8") as f:
+    with open(TRADE_LOG, "w", encoding="utf-8", errors="replace") as f:
+        json.dump(trades, f, ensure_ascii=False, indent=2)
         json.dump(trades, f, ensure_ascii=False, indent=2)
 
     return trade
@@ -218,7 +219,7 @@ def get_trade_stats():
         return {"total": 0, "wins": 0, "losses": 0, "win_rate": 0,
                 "total_pnl": 0, "avg_win": 0, "avg_loss": 0}
 
-    with open(TRADE_LOG, "r", encoding="utf-8") as f:
+    with open(TRADE_LOG, "r", encoding="utf-8", errors="replace") as f:
         trades = json.load(f)
 
     wins = [t for t in trades if t["outcome"].startswith("TP")]

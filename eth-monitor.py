@@ -17,7 +17,7 @@ from eth_skills_bridge import (
 )
 
 OUTPUT = os.path.expanduser("~/Desktop/eth-report.txt")
-ACCOUNT = 10.12; LEV = 125; RISK_PCT = 0.10; MARGIN_PCT = 0.20
+ACCOUNT = 88.21; LEV = 150; RISK_PCT = 0.10; MARGIN_PCT = 0.10
 TZ = timezone(timedelta(hours=8))
 
 PROXY = "http://127.0.0.1:7897"
@@ -85,36 +85,43 @@ def main():
         try:
             from jin10_fetch import Jin10
             j10 = Jin10()
+        except UnicodeError:
+            jin10_macro_note = "金十编码异常，跳过"
+        except Exception:
+            jin10_macro_note = "金十连接失败"
+        else:
+            try:
+                # 一次调用拉取所有维度
+                all_data = j10.get_all_impact()
+                jin10_events = all_data["calendar"]
+                jin10_crypto = all_data["crypto"]
+                jin10_geo = all_data["geopolitical"]
+                jin10_macro_news = all_data["macro"]
 
-            # 一次调用拉取所有维度
-            all_data = j10.get_all_impact()
-            jin10_events = all_data["calendar"]
-            jin10_crypto = all_data["crypto"]
-            jin10_geo = all_data["geopolitical"]
-            jin10_macro_news = all_data["macro"]
+                # 财经日历摘要
+                high_events = [e for e in jin10_events if e["star"] >= 3]
+                if high_events:
+                    jin10_macro_note = "今日重磅: " + "、".join(e["title"][:25] for e in high_events[:3])
+                elif jin10_events:
+                    jin10_macro_note = "今日事件: " + "、".join(e["title"][:25] for e in jin10_events[:2])
 
-            # 财经日历摘要
-            high_events = [e for e in jin10_events if e["star"] >= 3]
-            if high_events:
-                jin10_macro_note = "今日重磅: " + "、".join(e["title"][:25] for e in high_events[:3])
-            elif jin10_events:
-                jin10_macro_note = "今日事件: " + "、".join(e["title"][:25] for e in jin10_events[:2])
+                # 汇总所有维度快讯
+                all_flash = []
+                seen_content = set()
+                for src, items in [("加密", jin10_crypto), ("地缘", jin10_geo), ("宏观", jin10_macro_news)]:
+                    for item in items[:3]:
+                        c = item["content"][:80]
+                        if c not in seen_content:
+                            seen_content.add(c)
+                            all_flash.append(f"{item['time'][:5]} [{src}] {c}")
+                all_flash.sort(reverse=True)
+                jin10_summary = " | ".join(all_flash[:5])
 
-            # 汇总所有维度快讯（加密+地缘+宏观，去重，取最新5条）
-            all_flash = []
-            seen_content = set()
-            for src, items in [("加密", jin10_crypto), ("地缘", jin10_geo), ("宏观", jin10_macro_news)]:
-                for item in items[:3]:
-                    c = item["content"][:80]
-                    if c not in seen_content:
-                        seen_content.add(c)
-                        all_flash.append(f"{item['time'][:5]} [{src}] {c}")
-            all_flash.sort(reverse=True)
-            jin10_summary = " | ".join(all_flash[:5])
-
-            j10.close()
-        except Exception as e:
-            jin10_macro_note = f"金十获取失败: {e}"
+                j10.close()
+            except UnicodeError:
+                jin10_macro_note = "金十编码异常，跳过"
+            except Exception as e:
+                jin10_macro_note = f"金十获取失败: {e}"
 
         # ---- L2: 三技能量化 ----
         bearish_signals = [1 if price < 2080 else 0, 1, 0]
@@ -306,8 +313,8 @@ def main():
 
         report += "\n"
 
-        with open(OUTPUT, "w", encoding="utf-8") as f:
-            f.write(report)
+        with open(OUTPUT, "w", encoding="utf-8", errors="replace") as f:
+            f.write(report.encode("utf-8", errors="replace").decode("utf-8", errors="replace"))
         print(f"[{now}] OK. ETH {price} -> {decision}")
 
     except Exception as e:
